@@ -2,17 +2,21 @@
 
 > 🔱 **Fork 自 [HuntzzZ/tmdb-proxy](https://github.com/HuntzzZ/tmdb-proxy)** —— 致谢原作者。
 > 本 fork 在原版基础上扩展了 **Bangumi (bangumi.tv / bgm.tv)** 代理能力, 一个 Worker 同时代理 TMDB 和 Bangumi。
+> 📱 **作为 [LunaTV-Mobile](https://github.com/djsevenx1/LunaTV-Mobile) v2.1.41+ 的官方 backend** — 配套 worker URL 输到 App 「TMDB / Bangumi 代理 URL」, 一键加速 TMDB + Bangumi。
 
 一个基于 Cloudflare Workers 的 API 代理服务, 用于解决影视库 / 弹幕网刮削工具的跨域访问问题。支持完整的 TMDB API + 图片代理, **并新增 Bangumi API + Bangumi 图片代理**。
 
+部署在 Cloudflare Pages (识别 `_worker.js`), 不是 Cloudflare Workers 经典模式。
+
 ## ✨ 功能特性
 
-- 🔄 **完整 TMDB API 代理**: 无缝代理所有 TMDB API 请求
-- 🖼️ **TMDB 图片代理**: 代理 TMDB 图片资源, 解决图片无法加载问题
-- 🎌 **Bangumi API 代理** *(本 fork 新增)*: 代理 `api.bgm.tv`, 透传客户端 `Authorization`
-- 🖼️ **Bangumi 图片代理** *(本 fork 新增)*: 代理 `lain.bgm.tv` 图片, 自动补 `Referer`
+- 🔄 **完整 TMDB API 代理** (path-based, 不套娃): `/movie/{id}` `/tv/{id}` `/search/movie?query=xxx` 等
+- 🖼️ **TMDB 图片代理**: `/image/t/p/{size}/{file}.jpg` → `image.tmdb.org/t/p/...`, 1 天 CDN cache
+- 🎌 **Bangumi API 代理** *(本 fork 新增)*: `/bangumi/{path}` → `api.bgm.tv`, 透传客户端 `Authorization`, 强制 `LunaTV-Mobile/1.0` UA
+- 🖼️ **Bangumi 图片代理** *(本 fork 新增)*: `/bgm-img/{path}` → `lain.bgm.tv`, 自动加 `Referer: https://bgm.tv/` 绕过反盗链
+- 🔑 **`?api_key=` 客户端透传** (v2.1.40.1+): 不想在 Cloudflare Dashboard 配 `TMDB_API_KEY` env? 客户端请求带 `?api_key=xxx` 直接用
 - 🌐 **CORS 支持**: 完整解决浏览器跨域问题
-- 🔒 **安全认证**: 服务端注入 TMDB API 密钥, 客户端无需自带
+- 🏠 **主页**: 根路径 `/` 返 LunaTV 风的 HTML 主页, 跟 worker 状态 / 路由 / 致谢一目了然
 - ⚡ **全球加速**: 基于 Cloudflare 全球边缘网络
 - 💾 **智能缓存**: 图片 1 天缓存, 减少 API 调用
 
@@ -20,37 +24,50 @@
 
 ### 前置要求
 
-- [x] Cloudflare 账户
-- [x] TMDB API 密钥（[申请地址](https://www.themoviedb.org/settings/api)）
-- [x] GitHub 账户
+- [x] Cloudflare 账户 (免费版够用, 100k requests/day)
+- [x] GitHub 账户 (用 Actions 自动部署) 或 Node.js 16+ (手动部署)
+- [x] *(可选)* TMDB API 密钥 ([申请地址](https://www.themoviedb.org/settings/api)) — 不配也能用, 见 `?api_key=` 客户端透传
 - [x] *(可选)* Bangumi access_token, 配 `BGM_ACCESS_TOKEN` env 后服务端注入, 客户端无需自带
 
-### 一键部署
+### 方式一: GitHub Actions 自动部署到 Cloudflare Pages (推荐)
+
+> 推到 main 自动 build & deploy, 拿 `https://<project>.pages.dev` 即可。
 
 1. **Fork 本仓库**
-2. **配置 GitHub Secrets**：
-   - 进入仓库 Settings → Secrets and variables → Actions
-   - 添加以下 Secrets：
-     - `CLOUDFLARE_API_TOKEN`：Cloudflare API 令牌，请选择Cloudflare Workers 模板
-     - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账户 ID（可选）
-     - `TMDB_API_KEY`：您的 TMDB API 密钥
-     - `BGM_ACCESS_TOKEN` *(可选)*: Bangumi access_token, 配了之后客户端请求 Bangumi API 无需自带 token
-3. **自动部署**：推送代码到 main 分支将自动触发部署
+2. **配置 GitHub Secrets** (仓库 Settings → Secrets and variables → Actions):
+   - `CLOUDFLARE_API_TOKEN`: Cloudflare API 令牌 (My Profile → API Tokens → Create Token → Edit Cloudflare Pages 模板)
+   - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare 账户 ID (Workers & Pages 详情页右侧栏可查)
+   - *(可选)* `TMDB_API_KEY`: 服务端持有的 TMDB API Key. 不配也行, 见 `?api_key=` 透传
+   - *(可选)* `Bgm_ACCESS_TOKEN`: 服务端持有的 Bangumi access_token
+3. **配置 Pages 项目名**: 编辑 `.github/workflows/deploy.yml` 里的 `project-name=tmdb-proxy` 改成你想要的
+4. **推送代码到 main 分支自动部署**
 
-### 手动部署
+### 方式二: Cloudflare Dashboard 上传 (一次性手动)
+
+> 适合不想配 GitHub Actions / 只想试一下的用户。
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create application** → **Pages** → **Upload assets** (直接上传)
+2. **Project name**: 自取, 如 `tmdb-proxy`
+3. 拖入整个项目根目录 (含 `_worker.js` / `worker.js` / `wrangler.toml`) → **Deploy site**
+4. 部署完 → **Settings** → **Environment variables** 配置 (可选) `TMDB_API_KEY` / `Bgm_ACCESS_TOKEN`
+5. 访问 `https://<project>.pages.dev/` 看 LunaTV 风主页
+
+> ⚠️ **重要**: Cloudflare Pages 识别 Worker 用 **`_worker.js`** (下划线开头) 约定文件, 不是 `worker.js`。
+> 本 repo 两个文件都保留 (内容一样), 既兼容 Pages 也兼容经典 Workers 部署。
+
+### 方式三: 本地 wrangler 命令行
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/tmdb-proxy.git
+git clone https://github.com/djsevenx1/tmdb-proxy.git
 cd tmdb-proxy
-# 安装依赖
+# 安装 wrangler
 npm install -g wrangler
-# 配置环境变量
-export CLOUDFLARE_API_TOKEN="your-api-token"
-export CLOUDFLARE_ACCOUNT_ID="your-account-id"
-export TMDB_API_KEY="your-tmdb-api-key"
-export BGM_ACCESS_TOKEN="your-bangumi-access-token"   # 可选
-# 部署
+# 登录
+wrangler login
+# 部署到 Cloudflare Pages (推荐)
+wrangler pages deploy . --project-name=tmdb-proxy
+# 部署到 Cloudflare Workers 经典模式 (旧)
 wrangler deploy
 ```
 
@@ -147,6 +164,33 @@ GET /bgm-img/r/200/char_id/123.jpg
 
 > 路径格式: `/bgm-img/{lain.bgm.tv 上的完整路径}`, 任意 `lain.bgm.tv` 下的资源都可代理。
 
+## 🏠 主页 (Homepage)
+
+> 根路径 `/` 返 LunaTV 风的 HTML 主页, 跟 worker 状态 / 路由表 / 致谢一目了然, 不用再手敲 `/health` 验证。
+
+部署完访问 `https://<project>.pages.dev/` 直接看:
+
+- ✅ Worker 状态 (在线 / 离线)
+- 📋 路由表 (TMDB / Bangumi / 图片代理 4 大类)
+- 🏷️ Fork 致谢 (HuntzzZ/tmdb-proxy)
+- 🔗 配套项目链接 (LunaTV-Mobile 等)
+
+`/health` 端点也保留, 返纯文本 `OK`, 适合 CI 健康检查。
+
+## 📱 LunaTV-Mobile 集成 (v2.1.41+)
+
+> 🎯 **本 repo 是 [LunaTV-Mobile](https://github.com/djsevenx1/LunaTV-Mobile) v2.1.41+ 的官方 backend**。
+
+部署完本 worker, 拿到的 `https://<project>.pages.dev` 粘到 LunaTV-Mobile App 的:
+**设置 → 数据源 → TMDB / Bangumi 代理 URL**
+
+配了后, App 内:
+- **TMDB 数据源 / 图片源** → 走 `${workerUrl}/movie/...` + `${workerUrl}/image/...`
+- **Bangumi 数据源 / 图片源** → 走 `${workerUrl}/bangumi/...` + `${workerUrl}/bgm-img/...`
+- **TMDB API Key** → 直接从 App 读, worker 端 `?api_key=` 透传, 不用去 Cloudflare Dashboard 配 env
+
+一个 worker 同时加速 TMDB + Bangumi 两套数据, 解决国内 GFW。
+
 ## 🔧 刮削工具配置
 
 ### Jellyfin
@@ -196,16 +240,19 @@ lain.bgm.tv   →  https://您的worker.workers.dev/bgm-img
 ```toml
 name = "tmdb-proxy"
 compatibility_date = "2024-01-01"
-main = "worker.js"
-# 自定义域名（可选）
-routes = [
-  "tmdb.yourdomain.com/*"
-]
-# 环境变量（通过 GitHub Secrets 设置）
-[env.production.vars]
-TMDB_API_KEY = "{{ secrets.TMDB_API_KEY }}"
-BGM_ACCESS_TOKEN = "{{ secrets.BGM_ACCESS_TOKEN }}"   # 可选
+compatibility_flags = ["nodejs_compat"]
+# ⚠️ Cloudflare Pages 项目用 _worker.js, 不用 main 字段
+# main = "worker.js"   # 经典 Workers 模式才用, Pages 部署会忽略
+# 自定义域名 (可选)
+# routes = [
+#   "tmdb.yourdomain.com/*"
+# ]
 ```
+
+> **Pages vs Workers 经典**:
+> - **Pages** (推荐): 走 `_worker.js` 约定文件, 部署用 `wrangler pages deploy` 或 GitHub Actions
+> - **Workers 经典**: 走 `main` 字段, 部署用 `wrangler deploy`
+> - 本 repo 两个文件 (`_worker.js` + `worker.js`) 内容一样, 兼容两种模式
 
 ## 🛠️ 开发指南
 
@@ -224,12 +271,12 @@ wrangler tail
 
 ```
 tmdb-proxy/
-├── worker.js              # Worker 主逻辑 (TMDB + Bangumi 双路由)
-├── wrangler.toml          # 配置文件
-├── package.json           # 依赖配置（可选）
+├── _worker.js             # Cloudflare Pages Worker 主逻辑 (下划线开头, Pages 约定)
+├── worker.js              # 同样内容, 兼容 Cloudflare Workers 经典模式
+├── wrangler.toml          # 配置文件 (Pages 模式无 main 字段)
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml     # 自动部署工作流
+│       └── deploy.yml     # 自动部署工作流 (Pages)
 └── README.md              # 项目文档
 ```
 
@@ -244,8 +291,13 @@ wrangler whoami
 ```
 
 **❌ TMDB API 返回 401 错误**
-- 检查 TMDB API 密钥是否正确
-- 验证环境变量配置
+- 优先级: `env.TMDB_API_KEY` (服务端) > 客户端 `?api_key=xxx` (透传, v2.1.40.1+)
+- 没配 `TMDB_API_KEY` env → 客户端必须带 `?api_key=xxx` 才能用, 例:
+  ```bash
+  curl "https://<project>.pages.dev/movie/550?api_key=YOUR_KEY"
+  ```
+- 配了 `TMDB_API_KEY` env → 客户端可不带, worker 自动注入
+- 配了但还是 401 → 检查 env 值是否正确, 改了 env 后要手动 Retry deployment (Cloudflare Pages env 变更不会自动触发)
 
 **❌ Bangumi API 返回 400 错误**
 - 强制 UA 已在 Worker 内注入, 不应再出现; 如出现检查 `User-Agent` 是否被你的中间层覆盖
@@ -280,9 +332,11 @@ on:
   push:
     branches: [ main ]
     paths:
+      - '_worker.js'
       - 'worker.js'
       - 'wrangler.toml'
       - 'package.json'
+      - '.github/workflows/deploy.yml'
 ```
 README 更新不会触发不必要的部署。
 
@@ -313,8 +367,10 @@ README 更新不会触发不必要的部署。
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
-> **致谢**: 本项目 fork 自 [HuntzzZ/tmdb-proxy](https://github.com/HuntzzZ/tmdb-proxy), 感谢原作者 [@HuntzzZ](https://github.com/HuntzzZ) 的优秀实现。
-> 本 fork 在原作者授权 (MIT) 基础上扩展 Bangumi 代理能力, 改动记录见 commit history。
+> **致谢**:
+> - 本项目 fork 自 [HuntzzZ/tmdb-proxy](https://github.com/HuntzzZ/tmdb-proxy), 感谢原作者 [@HuntzzZ](https://github.com/HuntzzZ) 的优秀实现
+> - 本 fork 在原作者授权 (MIT) 基础上扩展 Bangumi 代理能力, 改动记录见 commit history
+> - 作为 [LunaTV-Mobile](https://github.com/djsevenx1/LunaTV-Mobile) v2.1.41+ 的官方 backend, 配合 App 一键加速 TMDB + Bangumi
 
 ## ⚠️ 免责声明
 
