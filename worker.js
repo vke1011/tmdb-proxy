@@ -95,10 +95,24 @@ async function handleTmdbApi(request, url, env, corsHeaders) {
     apiPath = apiPath.replace('/proxy', '')
   }
   const searchParams = new URLSearchParams(url.searchParams)
+  // 优先级: env.TMDB_API_KEY (服务端持有, 推荐) > 客户端 ?api_key= (透传)
+  //
+  // v2.1.40.1 改: 之前只认 env, 配了 Pages 没用的话整个 TMDB API 都 500.
+  //   现在支持客户端 query string 传 api_key, 适合 "自己 fork 随便玩"
+  //   不想去 CF Dashboard 配 env 的场景. 安全性: LunaTV 反正要 TMDB key
+  //   才能用 (直连 api.themoviedb.org 也得带), 透传 HTTPS, 跟直连一样安全.
+  const userKey = searchParams.get('api_key')
   if (env.TMDB_API_KEY) {
     searchParams.set('api_key', env.TMDB_API_KEY)
+  } else if (userKey) {
+    // 客户端传过来, 透传 (LunaTV 本来就有用户的 key, 走 worker 只是换个 host)
+    searchParams.set('api_key', userKey)
   } else {
-    return jsonError('TMDB API key not configured', 500, corsHeaders)
+    return jsonError(
+      'TMDB API key not configured (set Pages env TMDB_API_KEY, or pass ?api_key=xxx)',
+      500,
+      corsHeaders
+    )
   }
   const apiUrl = `https://api.themoviedb.org/3${apiPath}?${searchParams}`
   const response = await fetch(apiUrl, {
