@@ -655,4 +655,4 @@ async function handleShortDramaImage(request, url, corsHeaders) {
       ...corsHeaders,
     },
   })
-} 
+}
